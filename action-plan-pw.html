@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>議事録 → アクションプラン</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Shippori+Mincho:wght@700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:#080a0f;color:#ddd8cc;font-family:'Noto Sans JP',sans-serif;min-height:100vh;font-size:13px;}
+.header{background:#0e1220;border-bottom:1px solid #1e2640;padding:14px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10;}
+.logo{width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,#c8a84a,#7a5010);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.title{font-family:'Shippori Mincho',serif;font-size:16px;font-weight:700;color:#e8d088;letter-spacing:.04em;}
+.sub{font-size:10px;color:#555;letter-spacing:.12em;margin-top:1px;}
+.main{max-width:860px;margin:0 auto;padding:24px 18px 60px;}
+
+.card{background:#0e1220;border:1px solid #1e2640;border-radius:10px;padding:20px;margin-bottom:16px;}
+.clabel{font-size:10px;color:#c8a84a;letter-spacing:.15em;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:7px;}
+.clabel::before{content:'';width:3px;height:10px;border-radius:2px;background:#c8a84a;display:block;}
+
+textarea{width:100%;min-height:180px;background:#060810;border:1px solid #1e2640;border-radius:7px;color:#bbb8b0;font-size:12px;line-height:1.8;padding:13px 15px;resize:vertical;outline:none;font-family:'Noto Sans JP',sans-serif;transition:border-color .2s;}
+textarea:focus{border-color:rgba(200,168,74,.4);}
+textarea::placeholder{color:#2e3040;}
+
+.row{display:flex;gap:10px;margin-top:14px;align-items:center;flex-wrap:wrap;}
+.btn{background:linear-gradient(135deg,#c8a84a,#8a6010);color:#060810;border:none;border-radius:7px;padding:10px 22px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Noto Sans JP',sans-serif;transition:opacity .2s;white-space:nowrap;}
+.btn:hover{opacity:.84;}
+.btn:disabled{background:#1e2640;color:#444;cursor:not-allowed;}
+.btn-ghost{background:transparent;border:1px solid #1e2640;color:#666;border-radius:7px;padding:10px 16px;font-size:12px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;transition:all .15s;}
+.btn-ghost:hover{border-color:#c8a84a;color:#c8a84a;}
+.btn-sm{background:transparent;border:1px solid #1e2640;color:#555;border-radius:5px;padding:3px 9px;font-size:10px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;transition:all .15s;}
+.btn-sm:hover{color:#999;border-color:#2e3040;}
+.btn-sm.ok{color:#40c880;border-color:#40c880;}
+
+.cc{margin-left:auto;font-size:11px;color:#333;}
+.err{margin-top:10px;color:#e05050;font-size:12px;padding:9px 12px;background:#3d1010;border-radius:6px;display:none;}
+
+/* LOADING */
+.loading{display:none;text-align:center;padding:50px 0;}
+.loading.on{display:block;}
+.spin{font-size:26px;display:inline-block;animation:sp 1.2s linear infinite;margin-bottom:12px;}
+@keyframes sp{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.loadtxt{font-size:12px;color:#555;letter-spacing:.1em;}
+
+/* RESULTS */
+#results{display:none;}
+.sum-card{background:#0e1220;border:1px solid rgba(200,168,74,.2);border-radius:10px;padding:16px 20px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.sum-title{font-family:'Shippori Mincho',serif;font-size:15px;color:#e8d088;}
+.sum-date{font-size:11px;color:#c8a84a;margin-top:3px;}
+.sum-body{font-size:11px;color:#888;margin-top:6px;line-height:1.6;}
+.sum-cnt{text-align:right;flex-shrink:0;}
+.sum-num{font-family:'Shippori Mincho',serif;font-size:28px;color:#c8a84a;line-height:1;}
+.sum-lbl{font-size:10px;color:#444;margin-top:3px;}
+
+.frow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
+.fc{background:transparent;border:1px solid #1e2640;color:#444;border-radius:14px;padding:3px 11px;font-size:10px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;transition:all .15s;}
+.fc.on{font-weight:600;}
+.copy-all{margin-left:auto;background:transparent;border:1px solid #1e2640;color:#555;border-radius:14px;padding:3px 11px;font-size:10px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;transition:all .15s;}
+.copy-all:hover{color:#999;}
+
+.alist{display:flex;flex-direction:column;gap:9px;}
+.acard{display:flex;gap:10px;background:#0c0f1a;border:1px solid #1e2640;border-radius:8px;padding:13px 16px;animation:up .25s ease;}
+@keyframes up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.aidx{width:22px;height:22px;border-radius:50%;background:#060810;border:1px solid #1e2640;display:flex;align-items:center;justify-content:center;font-size:10px;color:#444;flex-shrink:0;margin-top:1px;}
+.abody{flex:1;min-width:0;}
+.atask{font-size:12px;color:#ddd;font-weight:600;line-height:1.5;margin-bottom:7px;}
+.ameta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.badge{border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;}
+.rbadge{border-radius:3px;padding:2px 7px;font-size:10px;}
+.anotes{margin-top:7px;font-size:10px;color:#555;background:#060810;border-radius:4px;padding:6px 9px;line-height:1.6;}
+
+.pribar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#0e1220;border:1px solid #1e2640;border-radius:8px;padding:12px 16px;margin-top:14px;}
+.priitem{display:flex;align-items:center;gap:5px;}
+.pridot{width:6px;height:6px;border-radius:50%;}
+
+/* ADD TO TASKS notice */
+.notice{margin-top:12px;padding:10px 14px;background:#0c1a0c;border:1px solid #1e401e;border-radius:6px;font-size:11px;color:#60a060;line-height:1.6;}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<script>
+(function(){
+  const PASS = "masa2026";
+  const KEY  = "mp_auth";
+  const ts   = sessionStorage.getItem(KEY);
+  if(ts && Date.now() - parseInt(ts) < 8*60*60*1000) return; // 8時間有効
+
+  // オーバーレイ表示
+  document.documentElement.style.overflow = "hidden";
+  const ov = document.createElement("div");
+  ov.id = "pw-ov";
+  ov.style.cssText = "position:fixed;inset:0;background:#060810;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:'Noto Sans JP',sans-serif;";
+  ov.innerHTML = `
+    <div style="background:#0e1220;border:1px solid #c8a84a44;border-radius:14px;padding:40px 36px;max-width:360px;width:95%;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,.8);">
+      <div style="width:52px;height:52px;background:linear-gradient(135deg,#c8a84a,#7a5010);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 18px;">🔐</div>
+      <div style="font-family:Georgia,serif;font-size:20px;font-weight:700;color:#e8d088;letter-spacing:.04em;margin-bottom:6px;">MASA Portal</div>
+      <div style="font-size:11px;color:#555;letter-spacing:.12em;margin-bottom:28px;">PRIVATE ACCESS</div>
+      <input id="pw-inp" type="password" placeholder="パスワードを入力"
+        style="width:100%;background:#060810;border:1px solid #1e2640;border-radius:8px;color:#ddd;font-size:14px;padding:12px 16px;outline:none;text-align:center;letter-spacing:.1em;margin-bottom:10px;font-family:'Noto Sans JP',sans-serif;"
+        onkeydown="if(event.key==='Enter')document.getElementById('pw-btn').click()">
+      <div id="pw-err" style="color:#e05050;font-size:11px;height:18px;margin-bottom:6px;"></div>
+      <button id="pw-btn"
+        style="width:100%;background:linear-gradient(135deg,#c8a84a,#8a6010);color:#060810;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.06em;"
+        onclick="(function(){
+          const v=document.getElementById('pw-inp').value;
+          if(v===\'masa2026\'){sessionStorage.setItem(\'mp_auth\',Date.now());document.getElementById(\'pw-ov\').remove();document.documentElement.style.overflow=\'\'}
+          else{document.getElementById(\'pw-err\').textContent=\'パスワードが違います\';document.getElementById(\'pw-inp\').value=\'\';document.getElementById(\'pw-inp\').focus();}
+        })()">
+        ログイン
+      </button>
+      <div style="margin-top:18px;font-size:10px;color:#333;">セッション中（8時間）は再入力不要</div>
+    </div>
+  `;
+  document.body.appendChild(ov);
+  setTimeout(()=>{ const i=document.getElementById('pw-inp'); if(i) i.focus(); },100);
+})();
+</script>
+
+<div class="header">
+  <div class="logo">📋</div>
+  <div>
+    <div class="title">議事録 → アクションプラン</div>
+    <div class="sub">PLAUD NOTE ANALYZER — AI powered</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="card">
+    <div class="clabel">議事録テキストを貼り付け</div>
+    <textarea id="txt" placeholder="プラウドノートからコピーした議事録テキストをここに貼り付けてください...
+
+例:
+2025年3月5日 10:00〜11:30
+参加者: 山田、鈴木、田中
+
+議題1: ファンド登録申請について
+3月11日の期限までに近畿財務局へ提出が必要...
+担当: 鈴木さんが書類を準備、MASAが最終確認..."></textarea>
+    <div class="row">
+      <button class="btn" id="genBtn" onclick="run()">🚀 アクションプラン生成</button>
+      <button class="btn-ghost" onclick="clearAll()">クリア</button>
+      <span class="cc" id="cc"></span>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spin">⚙</div>
+    <div class="loadtxt">議事録を解析しています...</div>
+  </div>
+
+  <div id="results">
+    <div class="sum-card">
+      <div>
+        <div class="sum-title" id="rTitle"></div>
+        <div class="sum-date" id="rDate"></div>
+        <div class="sum-body" id="rSummary"></div>
+      </div>
+      <div class="sum-cnt">
+        <div class="sum-num" id="rCnt">0</div>
+        <div class="sum-lbl">アクション</div>
+      </div>
+    </div>
+    <div class="frow" id="frow">
+      <button class="copy-all" onclick="copyAll()">📋 全コピー</button>
+    </div>
+    <div class="alist" id="alist"></div>
+    <div class="pribar" id="pribar"></div>
+    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn" onclick="dlExcel()" style="background:linear-gradient(135deg,#217346,#134d2e);font-size:12px;padding:9px 18px;">
+        📊 Excelダウンロード (.xlsx)
+      </button>
+      <button class="btn-ghost" onclick="dlCsv()" style="font-size:12px;padding:9px 18px;">
+        📄 CSVダウンロード
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+const ROLES=[
+  {id:'all',l:'すべて',c:'#c8a84a'},
+  {id:'smartlife',l:'スマートライフ大学',c:'#4898e0'},
+  {id:'pcdepot',l:'PC DEPOT',c:'#30c4a0'},
+  {id:'sakura',l:'さくら（ファンド）',c:'#d84898'},
+  {id:'family',l:'ファミリー（M&A）',c:'#9048d8'},
+  {id:'vector',l:'ベクター',c:'#d89048'},
+  {id:'medical',l:'医療法人',c:'#48d870'},
+  {id:'personal',l:'個人・その他',c:'#6a6a7a'},
+];
+const PRI={
+  high:{l:'高',c:'#e05050',bg:'#3d1010'},
+  medium:{l:'中',c:'#e0a040',bg:'#3d2808'},
+  low:{l:'低',c:'#4090d0',bg:'#102030'},
+};
+function rObj(id){return ROLES.find(r=>r.id===id)||ROLES[ROLES.length-1];}
+function eh(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+const SYSTEM=`あなたは優秀な経営コンサルタントの秘書です。議事録からアクションプランを抽出しJSONのみで返してください（前置き・後書き・コードブロック記号一切不要）。
+形式:{"meeting_title":"会議名","meeting_date":"日付(あれば、なければ空)","summary":"要点100字以内","actions":[{"id":1,"task":"具体的なアクション","assignee":"担当者(不明ならMASA)","deadline":"YYYY/MM/DD or 要確認","priority":"high|medium|low","role":"smartlife|pcdepot|sakura|family|vector|medical|personal","notes":"補足(なければ空文字)"}]}
+role判定:smartlife=大学教育イベント、pcdepot=財務経営戦略、sakura=ファンド投資金融庁、family=M&A買収売却、vector=IR PR上場広報、medical=医療介護ヘルスケア、personal=その他個人
+priority判定:high=期限近い・金額大・リスク大・即時対応、medium=重要だが猶予あり・継続タスク、low=確認事項・将来検討`;
+
+let data=null, activeRole='all';
+
+document.getElementById('txt').addEventListener('input',function(){
+  document.getElementById('cc').textContent=this.value.length?this.value.length+' 文字':'';
+});
+
+async function run(){
+  const text=document.getElementById('txt').value.trim();
+  if(!text){showErr('議事録テキストを入力してください');return;}
+  hideErr();
+  setLoad(true);
+  document.getElementById('results').style.display='none';
+
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({
+        model:'claude-haiku-4-5-20251001',
+        max_tokens:4000,
+        system:SYSTEM,
+        messages:[{role:'user',content:'議事録:\n\n'+text}]
+      })
+    });
+    if(!res.ok){
+      const et=await res.text();
+      let m='HTTP '+res.status;
+      try{const j=JSON.parse(et);m+=': '+(j.error?.message||et.slice(0,160));}catch{m+=': '+et.slice(0,160);}
+      throw new Error(m);
+    }
+    const d=await res.json();
+    if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));
+    const raw=(d.content||[]).map(b=>b.text||'').join('');
+    if(!raw)throw new Error('応答が空です');
+    data=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    activeRole='all';
+    render();
+  }catch(e){
+    showErr('エラー: '+(e.message||String(e)));
+    console.error(e);
+  }finally{
+    setLoad(false);
+  }
+}
+
+function clearAll(){
+  document.getElementById('txt').value='';
+  document.getElementById('cc').textContent='';
+  document.getElementById('results').style.display='none';
+  data=null;hideErr();
+}
+
+function filtered(){return(data?.actions||[]).filter(a=>activeRole==='all'||a.role===activeRole);}
+
+function render(){
+  document.getElementById('rTitle').textContent=data.meeting_title||'会議';
+  const de=document.getElementById('rDate');
+  de.textContent=data.meeting_date?'📅 '+data.meeting_date:'';
+  document.getElementById('rSummary').textContent=data.summary||'';
+  document.getElementById('rCnt').textContent=(data.actions||[]).length;
+  renderFilters();renderList();renderPri();
+  document.getElementById('results').style.display='block';
+}
+
+function renderFilters(){
+  const fr=document.getElementById('frow');
+  fr.innerHTML='<button class="copy-all" onclick="copyAll()">📋 全コピー</button>';
+  ROLES.forEach(r=>{
+    const cnt=r.id==='all'?data.actions.length:data.actions.filter(a=>a.role===r.id).length;
+    if(r.id!=='all'&&cnt===0)return;
+    const b=document.createElement('button');
+    b.className='fc'+(activeRole===r.id?' on':'');
+    if(activeRole===r.id)b.style.cssText=`border-color:${r.c};color:${r.c};background:${r.c}18;`;
+    b.textContent=r.l+(cnt>0?` (${cnt})`:'');
+    b.onclick=()=>{activeRole=r.id;render();};
+    fr.insertBefore(b,fr.lastChild);
+  });
+}
+
+function renderList(){
+  const list=document.getElementById('alist');list.innerHTML='';
+  const f=filtered();
+  if(!f.length){list.innerHTML='<div style="text-align:center;padding:24px;color:#333;font-size:12px;">このカテゴリのアクションはありません</div>';return;}
+  f.forEach((a,i)=>{
+    const pri=PRI[a.priority]||PRI.medium;
+    const ro=rObj(a.role);
+    const card=document.createElement('div');
+    card.className='acard';card.style.borderLeft='3px solid '+ro.c;
+    const enc=btoa(encodeURIComponent(JSON.stringify(a)));
+    card.innerHTML=`
+      <div class="aidx">${i+1}</div>
+      <div class="abody">
+        <div class="atask">${eh(a.task)}</div>
+        <div class="ameta">
+          <span class="badge" style="background:${pri.bg};color:${pri.c}">優先度:${pri.l}</span>
+          <span style="font-size:10px;color:#555">👤 ${eh(a.assignee)}</span>
+          <span style="font-size:10px;color:${a.deadline==='要確認'?'#e0a040':'#555'}">🗓 ${eh(a.deadline)}</span>
+          <span class="rbadge" style="background:${ro.c}18;color:${ro.c}">${eh(ro.l)}</span>
+        </div>
+        ${a.notes?`<div class="anotes">💬 ${eh(a.notes)}</div>`:''}
+      </div>
+      <button class="btn-sm" id="cb${i}" onclick="cpItem('cb${i}','${enc}')">コピー</button>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function renderPri(){
+  const bar=document.getElementById('pribar');const f=filtered();
+  bar.innerHTML='<span style="font-size:10px;color:#444">優先度:</span>';
+  ['high','medium','low'].forEach(p=>{
+    const cnt=f.filter(a=>a.priority===p).length;
+    const pr=PRI[p];
+    bar.innerHTML+=`<div class="priitem"><div class="pridot" style="background:${pr.c}"></div><span style="font-size:11px;color:${pr.c}">${pr.l}</span><span style="font-size:14px;font-weight:700;color:#ddd">${cnt}</span></div>`;
+  });
+  bar.innerHTML+=`<span style="margin-left:auto;font-size:10px;color:#444">合計 ${f.length} 件</span>`;
+}
+
+// コピー共通関数（clipboard API非対応環境でも動作）
+function copyText(text, btnEl){
+  let ok = false;
+  // 1) Modern clipboard API
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>{flash(btnEl);}).catch(()=>{fallbackCopy(text,btnEl);});
+    return;
+  }
+  fallbackCopy(text, btnEl);
+}
+function fallbackCopy(text, btnEl){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); flash(btnEl); }
+  catch(e){ showCopyModal(text); }
+  document.body.removeChild(ta);
+}
+function flash(btnEl){
+  if(!btnEl) return;
+  const orig = btnEl.textContent;
+  btnEl.textContent = '✓ コピー済';
+  btnEl.style.color = '#40c880';
+  btnEl.style.borderColor = '#40c880';
+  setTimeout(()=>{ btnEl.textContent = orig; btnEl.style.color=''; btnEl.style.borderColor=''; }, 1800);
+}
+// 万が一コピーできない場合は選択テキストで表示
+function showCopyModal(text){
+  const ov = document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML=`<div style="background:#0e1220;border:1px solid #c8a84a;border-radius:10px;padding:24px;max-width:560px;width:95%;max-height:80vh;overflow-y:auto;">
+    <div style="font-size:13px;color:#c8a84a;margin-bottom:10px;font-weight:700;">📋 テキストを選択してコピーしてください (Cmd+A → Cmd+C)</div>
+    <textarea readonly style="width:100%;min-height:200px;background:#060810;border:1px solid #1e2640;border-radius:6px;color:#bbb;font-size:12px;padding:10px;line-height:1.7;">${text.replace(/</g,'&lt;')}</textarea>
+    <button onclick="this.closest('div').parentNode.remove()" style="margin-top:12px;background:linear-gradient(135deg,#c8a84a,#8a6010);color:#060810;border:none;border-radius:6px;padding:8px 20px;font-size:12px;font-weight:700;cursor:pointer;width:100%;">閉じる</button>
+  </div>`;
+  ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+  document.body.appendChild(ov);
+  setTimeout(()=>{ const ta=ov.querySelector('textarea'); if(ta){ta.focus();ta.select();} },100);
+}
+
+function cpItem(btnId, enc){
+  let a; try{ a=JSON.parse(decodeURIComponent(atob(enc))); }catch{ return; }
+  const pr = PRI[a.priority]||PRI.medium;
+  const text = `【${a.task}】\n担当:${a.assignee} | 期限:${a.deadline} | 優先度:${pr.l}${a.notes?'\n備考:'+a.notes:''}`;
+  copyText(text, document.getElementById(btnId));
+}
+
+function copyAll(){
+  if(!data) return;
+  const f = filtered();
+  const lines = [`■ ${data.meeting_title}`, data.meeting_date?`日時:${data.meeting_date}`:'', `概要:${data.summary}`, '', '▼ アクションプラン'].filter(Boolean);
+  f.forEach((a,i)=>{ const pr=PRI[a.priority]||PRI.medium; lines.push(`\n${i+1}. ${a.task}`); lines.push(`   担当:${a.assignee} | 期限:${a.deadline} | 優先度:${pr.l}`); if(a.notes) lines.push(`   備考:${a.notes}`); });
+  const btn = document.querySelector('.copy-all');
+  copyText(lines.join('\n'), btn);
+}
+
+// ─── EXCEL / CSV DOWNLOAD ───
+function buildRows(){
+  const f = filtered();
+  const headers = ['No.','タスク','担当者','期限','優先度','役割','補足・背景'];
+  const rows = f.map((a,i)=>[
+    i+1,
+    a.task||'',
+    a.assignee||'',
+    a.deadline||'',
+    (PRI[a.priority]||PRI.medium).l,
+    rObj(a.role).l,
+    a.notes||''
+  ]);
+  return {headers, rows, title: data?.meeting_title||'アクションプラン', date: data?.meeting_date||'', summary: data?.summary||''};
+}
+
+function dlExcel(){
+  if(!data) return;
+  const {headers, rows, title, date, summary} = buildRows();
+  const wb = XLSX.utils.book_new();
+
+  // ── サマリーシート ──
+  const sumData = [
+    ['会議名', title],
+    ['日時',   date],
+    ['概要',   summary],
+    [''],
+    ['アクション数', rows.length],
+  ];
+  const wsSummary = XLSX.utils.aoa_to_sheet(sumData);
+  wsSummary['!cols'] = [{wch:14},{wch:60}];
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'サマリー');
+
+  // ── アクションプランシート ──
+  const wsData = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [
+    {wch:6},   // No
+    {wch:42},  // タスク
+    {wch:12},  // 担当者
+    {wch:13},  // 期限
+    {wch:8},   // 優先度
+    {wch:18},  // 役割
+    {wch:40},  // 補足
+  ];
+  // ヘッダー行の太字・背景色
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for(let c = range.s.c; c <= range.e.c; c++){
+    const addr = XLSX.utils.encode_cell({r:0, c});
+    if(!ws[addr]) continue;
+    ws[addr].s = {
+      font: {bold:true, color:{rgb:'FFFFFF'}},
+      fill: {fgColor:{rgb:'1A2A4A'}},
+      alignment: {horizontal:'center', vertical:'center'}
+    };
+  }
+  XLSX.utils.book_append_sheet(wb, ws, 'アクションプラン');
+
+  // ── 役割別シート ──
+  const byRole = {};
+  (data.actions||[]).forEach(a=>{
+    const rl = rObj(a.role).l;
+    if(!byRole[rl]) byRole[rl]=[];
+    byRole[rl].push(a);
+  });
+  Object.entries(byRole).forEach(([roleName, acts])=>{
+    const rRows = acts.map((a,i)=>[i+1, a.task||'', a.assignee||'', a.deadline||'', (PRI[a.priority]||PRI.medium).l, a.notes||'']);
+    const wsR = XLSX.utils.aoa_to_sheet([['No.','タスク','担当者','期限','優先度','補足'], ...rRows]);
+    wsR['!cols']=[{wch:5},{wch:42},{wch:12},{wch:13},{wch:8},{wch:40}];
+    const sheetName = roleName.slice(0,28); // シート名31文字制限
+    XLSX.utils.book_append_sheet(wb, wsR, sheetName);
+  });
+
+  const now = new Date();
+  const fname = `アクションプラン_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+function dlCsv(){
+  if(!data) return;
+  const {headers, rows} = buildRows();
+  const allRows = [headers, ...rows];
+  const csv = allRows.map(row =>
+    row.map(cell => {
+      const s = String(cell||'');
+      return s.includes(',') || s.includes('\n') || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s;
+    }).join(',')
+  ).join('\n');
+  // BOM付きUTF-8（Excelで文字化け防止）
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'アクションプラン.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function showErr(m){const e=document.getElementById('err');e.textContent='⚠ '+m;e.style.display='block';}
+function hideErr(){document.getElementById('err').style.display='none';}
+function setLoad(on){
+  document.getElementById('loading').className='loading'+(on?' on':'');
+  document.getElementById('genBtn').disabled=on;
+  document.getElementById('genBtn').textContent=on?'⏳ 解析中...':'🚀 アクションプラン生成';
+}
+</script>
+</body>
+</html>
