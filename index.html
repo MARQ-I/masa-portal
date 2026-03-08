@@ -957,18 +957,24 @@ async function importImage(file){
   const reader=new FileReader();
   reader.onload=async e=>{
     const base64=e.target.result.split(',')[1];
-    const mime=file.type||'image/jpeg';
+    const isPdf=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
+    const mime=isPdf?'application/pdf':(file.type||'image/jpeg');
     try{
+      // PDFはdocumentタイプ、画像はimageタイプで送信
+      const contentBlock=isPdf
+        ?{type:'document',source:{type:'base64',media_type:'application/pdf',data:base64}}
+        :{type:'image',source:{type:'base64',media_type:mime,data:base64}};
       const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:mime,data:base64}},
+          contentBlock,
           {type:'text',text:'名刺の情報をJSONで返してください（マークダウン不要）:\n{"name":"","company":"","title":"","email":"","phone":"","mobile":"","address":"","url":""}'}
         ]}]})});
       const data=await res.json();
       if(data.error)throw new Error(data.error.message);
       const parsed=JSON.parse(data.content[0].text.replace(/```json|```/g,'').trim());
-      S.cards.push({id:uid(),...parsed,photoUrl:e.target.result,tags:[],createdAt:new Date().toISOString()});
+      const photoUrl=isPdf?null:e.target.result;
+      S.cards.push({id:uid(),...parsed,photoUrl,tags:[],createdAt:new Date().toISOString()});
       save();renderCards();renderSidebar();renderDashboard();closeModal('modal-import');showToast('名刺を読み取りました','success');
     }catch(err){showToast('読み取りエラー: '+err.message,'error');}
   };
