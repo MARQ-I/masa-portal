@@ -161,6 +161,15 @@ html,body{width:100%;height:100%;background:var(--bg-primary);color:var(--text-p
 /* SETTINGS */
 .set-sec{background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--r-lg);padding:22px;margin-bottom:18px}
 .set-sec-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:7px}
+
+.tag-quick{position:relative;display:inline-block}
+.tag-quick-btn{background:var(--bg-secondary);border:1px dashed var(--border-color);border-radius:12px;padding:2px 8px;font-size:10px;color:var(--text-muted);cursor:pointer;transition:var(--ease)}
+.tag-quick-btn:hover{border-color:var(--accent);color:var(--accent)}
+.tag-quick-menu{position:absolute;bottom:110%;left:0;background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--r);padding:6px;min-width:160px;z-index:999;box-shadow:0 4px 20px rgba(0,0,0,.3);display:none}
+.tag-quick-menu.open{display:block}
+.tag-quick-item{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);transition:var(--ease)}
+.tag-quick-item:hover{background:var(--bg-secondary);color:var(--text-primary)}
+.tag-quick-item.selected{color:var(--text-primary);font-weight:600}
 .tag-edit-row{display:flex;align-items:center;gap:7px;padding:7px 0;border-bottom:1px solid var(--border-color)}
 .tag-edit-row:last-child{border-bottom:none}
 .theme-btn{cursor:pointer;padding:11px 14px;border-radius:var(--r);border:2px solid transparent;min-width:110px;transition:var(--ease)}
@@ -722,6 +731,7 @@ function renderCards(){
       ${c.address?`<div class="ci-row"><span class="ci-icon">⌖</span>${esc(c.address)}</div>`:''}
       <div class="card-tags">${tags}</div>
       <div class="card-acts" onclick="event.stopPropagation()">
+        <div class="tag-quick"><button class="tag-quick-btn" onclick="toggleTagMenu('${c.id}',event)">🏷 タグ</button><div class="tag-quick-menu" id="tqm-${c.id}">${S.tags.map(t=>`<div class="tag-quick-item ${(c.tags||[]).includes(t.id)?'selected':''}" onclick="quickTag('${c.id}','${t.id}',event)"><span style="width:8px;height:8px;border-radius:50%;background:${t.color};display:inline-block"></span>${esc(t.name)} ${(c.tags||[]).includes(t.id)?'✓':''}</div>`).join('')}</div></div>
         <button class="btn btn-ai btn-sm" onclick="runAI('${c.id}')">✦ AI分析</button>
         <button class="btn btn-s btn-sm" onclick="openDetail('${c.id}')">詳細</button>
         <button class="btn btn-g btn-sm" style="margin-left:auto" onclick="delCard('${c.id}')">🗑</button>
@@ -730,6 +740,31 @@ function renderCards(){
   }).join('');
 }
 
+
+function toggleTagMenu(cardId,e){
+  e.stopPropagation();
+  // Close all other menus
+  document.querySelectorAll('.tag-quick-menu.open').forEach(m=>{if(m.id!=='tqm-'+cardId)m.classList.remove('open');});
+  const menu=document.getElementById('tqm-'+cardId);
+  if(menu)menu.classList.toggle('open');
+}
+function quickTag(cardId,tagId,e){
+  e.stopPropagation();
+  const c=S.cards.find(x=>x.id===cardId);if(!c)return;
+  if(!c.tags)c.tags=[];
+  const idx=c.tags.indexOf(tagId);
+  if(idx>=0){c.tags.splice(idx,1);}else{c.tags.push(tagId);}
+  save();renderCards();renderSidebar();renderDashboard();
+  // Keep menu open after selection
+  setTimeout(()=>{
+    const menu=document.getElementById('tqm-'+cardId);
+    if(menu)menu.classList.add('open');
+  },50);
+}
+// Close tag menus on outside click
+document.addEventListener('click',()=>{
+  document.querySelectorAll('.tag-quick-menu.open').forEach(m=>m.classList.remove('open'));
+});
 // ── DETAIL MODAL ──
 function openDetail(id){
   const c=S.cards.find(x=>x.id===id);if(!c)return;
