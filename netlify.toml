@@ -7,14 +7,6 @@
     X-Frame-Options = "SAMEORIGIN"
     X-Content-Type-Options = "nosniff"
 
-# Anthropic API proxy to fix CORS
-[[redirects]]
-  from = "/api/anthropic/*"
-  to = "https://api.anthropic.com/:splat"
-  status = 200
-  force = true
-  headers = {X-Forwarded-Host = "api.anthropic.com"}
-
 [[redirects]]
   from = "/*"
   to = "/index.html"
