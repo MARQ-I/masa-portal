@@ -548,18 +548,37 @@ function load(){
 }
 
 // ── AUTH ──
-function checkPassword(){
+async function sha256(str){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function checkPassword(){
   const v=document.getElementById('pw-inp').value;
   const stored=localStorage.getItem('_mpw');
   const errEl=document.getElementById('pw-err');
   errEl.style.display='none';
   if(!stored){
     if(v.length<4){errEl.textContent='4文字以上のパスワードを設定してください';errEl.style.display='block';return;}
-    localStorage.setItem('_mpw',btoa(encodeURIComponent(v)));
+    // 旧btoa形式からの移行チェック
+    const hash=await sha256(v);
+    localStorage.setItem('_mpw','sha256:'+hash);
     showApp();return;
   }
-  if(btoa(encodeURIComponent(v))===stored){showApp();}
-  else{errEl.textContent='パスワードが違います';errEl.style.display='block';document.getElementById('pw-inp').value='';document.getElementById('pw-inp').focus();}
+  // SHA-256形式
+  if(stored.startsWith('sha256:')){
+    const hash=await sha256(v);
+    if('sha256:'+hash===stored){showApp();}
+    else{errEl.textContent='パスワードが違います';errEl.style.display='block';document.getElementById('pw-inp').value='';document.getElementById('pw-inp').focus();}
+  } else {
+    // 旧btoa形式との後方互換（自動移行）
+    if(btoa(encodeURIComponent(v))===stored){
+      const hash=await sha256(v);
+      localStorage.setItem('_mpw','sha256:'+hash); // 自動アップグレード
+      showApp();
+    } else {
+      errEl.textContent='パスワードが違います';errEl.style.display='block';document.getElementById('pw-inp').value='';document.getElementById('pw-inp').focus();
+    }
+  }
 }
 
 function showApp(){
@@ -1153,13 +1172,13 @@ function applyTheme(){
   document.body.className=themes[S.settings.theme||'default']||'';
   if(S.settings.accent)document.documentElement.style.setProperty('--accent',S.settings.accent);
 }
-function changePw(){
+async function changePw(){
   const p1=document.getElementById('s-pw1').value,p2=document.getElementById('s-pw2').value;
   if(!p1||p1.length<4){showToast('4文字以上入力してください','error');return;}
   if(p1!==p2){showToast('パスワードが一致しません','error');return;}
-  localStorage.setItem('_mpw',btoa(encodeURIComponent(p1)));
+  const hash=await sha256(p1);localStorage.setItem('_mpw','sha256:'+hash);
   document.getElementById('s-pw1').value='';document.getElementById('s-pw2').value='';
-  showToast('パスワードを変更しました','success');
+  showToast('パスワードを変更しました（SHA-256で保護）','success');
 }
 
 // ── DATA ──
