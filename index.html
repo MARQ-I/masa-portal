@@ -797,7 +797,7 @@ async function runAI(cardId){
 名前:${c.name||'不明'} 会社:${c.company||'不明'} 役職:${c.title||''} URL:${c.url||''}
 {"company_overview":"会社概要200字","philosophy":"企業理念150字","talk_points":"会議トークポイント3〜5点（箇条書き）"}`;
   try{
-    const res=await fetch('/api/anthropic/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-calls':'true','Access-Control-Allow-Origin':'*'},
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
     const data=await res.json();
     if(data.error)throw new Error(data.error.message);
@@ -824,7 +824,7 @@ async function genActionFromMin(minId,cardId){
 内容:${m.content}
 {"actions":[{"title":"内容","priority":"high|mid|low","deadline":"YYYY-MM-DD","assignee":"担当"}]}`;
   try{
-    const res=await fetch('/api/anthropic/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-calls':'true','Access-Control-Allow-Origin':'*'},
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
     const data=await res.json();
     if(data.error)throw new Error(data.error.message);
@@ -959,8 +959,8 @@ async function importImage(file){
     const base64=e.target.result.split(',')[1];
     const mime=file.type||'image/jpeg';
     try{
-      const res=await fetch('/api/anthropic/v1/messages',{method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-calls':'true','Access-Control-Allow-Origin':'*'},
+      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:[
           {type:'image',source:{type:'base64',media_type:mime,data:base64}},
           {type:'text',text:'名刺の情報をJSONで返してください（マークダウン不要）:\n{"name":"","company":"","title":"","email":"","phone":"","mobile":"","address":"","url":""}'}
