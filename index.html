@@ -925,7 +925,11 @@ function saveCard(){
   } else {
     const newCard={id:uid(),...card,createdAt:new Date().toISOString()};
     if(window._pendingPhoto){newCard.photoUrl=window._pendingPhoto;window._pendingPhoto=null;}
-    S.cards.push(newCard);
+    const dupResult=upsertCard(newCard);
+    if(dupResult==='updated'){
+      save();renderCards();renderSidebar();renderDashboard();
+      closeModal('modal-card-form');showToast('同じ氏名・会社名の名刺を上書き更新しました','success');return;
+    }
   }
   save();renderCards();renderSidebar();renderDashboard();
   closeModal('modal-card-form');showToast(id?'名刺を更新しました':'名刺を追加しました','success');
@@ -977,21 +981,52 @@ async function handleImport(input){
   }
 }
 
+
+// ── 重複チェック＆上書き（氏名＋会社名が一致したら上書き）──
+function upsertCard(newCard){
+  const key = c => (c.name||'').trim()+'__'+(c.company||'').trim();
+  const nk = key(newCard);
+  if(!nk || nk === '__') {
+    // 氏名も会社名も空なら通常追加
+    S.cards.push(newCard); return 'added';
+  }
+  const idx = S.cards.findIndex(c => key(c) === nk);
+  if(idx >= 0){
+    // 既存カードの id・tags・photoUrl・createdAt を引き継ぎつつ上書き
+    S.cards[idx] = {
+      ...S.cards[idx],
+      ...newCard,
+      id: S.cards[idx].id,
+      tags: S.cards[idx].tags,
+      photoUrl: newCard.photoUrl || S.cards[idx].photoUrl,
+      createdAt: S.cards[idx].createdAt,
+      updatedAt: new Date().toISOString()
+    };
+    return 'updated';
+  } else {
+    S.cards.push(newCard); return 'added';
+  }
+}
 function importExcel(file){
   const reader=new FileReader();
   reader.onload=e=>{
     try{
       const wb=XLSX.read(e.target.result);
       const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
-      let cnt=0;
+      let cnt=0,upd=0;
       rows.forEach(r=>{
         const c={id:uid(),name:r['氏名']||r['name']||r['Name']||'',company:r['会社名']||r['company']||r['Company']||'',
           title:r['役職']||r['title']||'',email:r['メール']||r['email']||'',phone:r['電話']||r['phone']||'',
           mobile:r['携帯']||r['mobile']||'',address:r['住所']||r['address']||'',url:r['URL']||r['url']||'',
           memo:r['メモ']||r['memo']||'',tags:[],createdAt:new Date().toISOString()};
-        if(c.name||c.company){S.cards.push(c);cnt++;}
+        if(c.name||c.company){
+          const result=upsertCard(c);
+          if(result==='updated') upd++; else cnt++;
+        }
       });
-      save();renderCards();renderSidebar();renderDashboard();closeModal('modal-import');showToast(`${cnt}件をインポートしました`,'success');
+      save();renderCards();renderSidebar();renderDashboard();closeModal('modal-import');
+      const msg=upd>0?`${cnt}件を追加、${upd}件を上書き更新しました`:`${cnt}件をインポートしました`;
+      showToast(msg,'success');
     }catch(err){showToast('インポートエラー: '+err.message,'error');}
   };
   reader.readAsArrayBuffer(file);
@@ -1021,8 +1056,10 @@ async function importImage(file){
       if(data.error)throw new Error(data.error.message);
       const parsed=JSON.parse(data.content[0].text.replace(/```json|```/g,'').trim());
       const photoUrl=isPdf?null:e.target.result;
-      S.cards.push({id:uid(),...parsed,photoUrl,tags:[],createdAt:new Date().toISOString()});
-      save();renderCards();renderSidebar();renderDashboard();closeModal('modal-import');showToast('名刺を読み取りました','success');
+      const newCard={id:uid(),...parsed,photoUrl,tags:[],createdAt:new Date().toISOString()};
+      const result=upsertCard(newCard);
+      save();renderCards();renderSidebar();renderDashboard();closeModal('modal-import');
+      showToast(result==='updated'?`${parsed.name||'名刺'}の情報を上書き更新しました`:'名刺を読み取りました','success');
     }catch(err){showToast('読み取りエラー: '+err.message,'error');}
   };
   reader.readAsDataURL(file);
