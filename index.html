@@ -1076,29 +1076,66 @@ function upsertCard(newCard){
     S.cards.push(newCard); return 'added';
   }
 }
+// Pending Excel rows for tag assignment
+window._excelPendingRows = [];
+
 function importExcel(file){
   const reader=new FileReader();
   reader.onload=e=>{
     try{
       const wb=XLSX.read(e.target.result);
       const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
-      let cnt=0,upd=0;
-      rows.forEach(r=>{
-        const c={id:uid(),name:r['氏名']||r['name']||r['Name']||'',company:r['会社名']||r['company']||r['Company']||'',
-          title:r['役職']||r['title']||'',email:r['メール']||r['email']||'',phone:r['電話']||r['phone']||'',
-          mobile:r['携帯']||r['mobile']||'',address:r['住所']||r['address']||'',url:r['URL']||r['url']||'',
-          memo:r['メモ']||r['memo']||'',tags:[],createdAt:new Date().toISOString()};
-        if(c.name||c.company){
-          const result=upsertCard(c);
-          if(result==='updated') upd++; else cnt++;
-        }
-      });
-      save();renderCards();renderSidebar();renderDashboard();closeModal('modal-import');
-      const msg=upd>0?`${cnt}件を追加、${upd}件を上書き更新しました`:`${cnt}件をインポートしました`;
-      showToast(msg,'success');
+      const parsed=rows.map(r=>({
+        id:uid(),name:r['氏名']||r['name']||r['Name']||'',company:r['会社名']||r['company']||r['Company']||'',
+        title:r['役職']||r['title']||'',email:r['メール']||r['email']||'',phone:r['電話']||r['phone']||'',
+        mobile:r['携帯']||r['mobile']||'',address:r['住所']||r['address']||'',url:r['URL']||r['url']||'',
+        memo:r['メモ']||r['memo']||'',tags:[],createdAt:new Date().toISOString()
+      })).filter(c=>c.name||c.company);
+      if(!parsed.length){showToast('取込める名刺データがありません','error');return;}
+      // Store parsed rows and show tag selection modal
+      window._excelPendingRows=parsed;
+      closeModal('modal-import');
+      // Show preview info
+      const names=parsed.slice(0,3).map(c=>c.name||c.company).join('、');
+      const more=parsed.length>3?` 他${parsed.length-3}件`:'';
+      document.getElementById('excel-tag-preview').innerHTML=
+        `<div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">📋 取込み対象：${parsed.length}件</div>`+
+        `<div>${names}${more}</div>`;
+      // Render tag checkboxes
+      document.getElementById('excel-tag-list').innerHTML=S.tags.map(t=>`
+        <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-secondary);border-radius:var(--r);cursor:pointer;border:1px solid var(--border-color);transition:var(--ease)" 
+               onmouseover="this.style.borderColor='${t.color}'" onmouseout="this.style.borderColor='var(--border-color)'">
+          <input type="checkbox" data-tag-id="${t.id}" style="width:16px;height:16px;accent-color:${t.color}">
+          <span style="width:10px;height:10px;border-radius:50%;background:${t.color};display:inline-block;flex-shrink:0"></span>
+          <span style="font-size:13px;color:var(--text-primary);flex:1">${esc(t.name)}</span>
+        </label>`).join('');
+      document.getElementById('modal-excel-tags').classList.add('open');
     }catch(err){showToast('インポートエラー: '+err.message,'error');}
   };
   reader.readAsArrayBuffer(file);
+}
+
+function getSelectedExcelTags(){
+  return Array.from(document.querySelectorAll('#excel-tag-list input[type=checkbox]:checked'))
+    .map(el=>el.dataset.tagId);
+}
+
+function execExcelImport(selectedTags){
+  const rows=window._excelPendingRows;
+  if(!rows||!rows.length){closeModal('modal-excel-tags');return;}
+  let cnt=0,upd=0;
+  rows.forEach(c=>{
+    c.tags=selectedTags.slice(); // assign selected tags
+    const result=upsertCard(c);
+    if(result==='updated') upd++; else cnt++;
+  });
+  window._excelPendingRows=[];
+  save();renderCards();renderSidebar();renderDashboard();
+  closeModal('modal-excel-tags');
+  const tagNames=selectedTags.map(id=>S.tags.find(t=>t.id===id)?.name||id).join('・');
+  const tagInfo=tagNames?` ［${tagNames}］`:'';
+  const msg=upd>0?`${cnt}件を追加、${upd}件を上書き更新しました${tagInfo}`:`${cnt}件をインポートしました${tagInfo}`;
+  showToast(msg,'success');
 }
 
 async function importImage(file){
@@ -1389,6 +1426,26 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 });
 </script>
+
+<!-- Excel Import Tag Modal -->
+<div class="modal-overlay" id="modal-excel-tags">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-hdr">
+      <div class="modal-title">🏷 タグを振り分ける</div>
+      <button class="btn btn-g btn-icon" onclick="closeModal('modal-excel-tags')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="excel-tag-preview" style="background:var(--bg-secondary);border-radius:var(--r);padding:12px;margin-bottom:16px;font-size:13px;color:var(--text-secondary)"></div>
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px">このExcelの名刺に紐づけるタグを選択してください（複数可）</div>
+      <div id="excel-tag-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div style="margin-top:14px;font-size:12px;color:var(--text-muted)">※ 既存名刺を上書きする場合、タグは引き継がれます</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-g" onclick="execExcelImport([])">タグなしで取込む</button>
+      <button class="btn btn-p" onclick="execExcelImport(getSelectedExcelTags())">✓ この内容で取込む</button>
+    </div>
+  </div>
+</div>
 <div id="tag-quick-overlay" onclick="closeTagMenus()"></div>
 </body>
 </html>
