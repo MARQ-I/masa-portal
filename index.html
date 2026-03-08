@@ -1061,12 +1061,14 @@ function upsertCard(newCard){
   }
   const idx = S.cards.findIndex(c => key(c) === nk);
   if(idx >= 0){
-    // 既存カードの id・tags・photoUrl・createdAt を引き継ぎつつ上書き
+    // 既存カードの id・photoUrl・createdAt を引き継ぎつつ上書き
+    // タグは既存タグ＋新規タグをマージ（重複排除）
+    const mergedTags=[...new Set([...(S.cards[idx].tags||[]),...(newCard.tags||[])])];
     S.cards[idx] = {
       ...S.cards[idx],
       ...newCard,
       id: S.cards[idx].id,
-      tags: S.cards[idx].tags,
+      tags: mergedTags,
       photoUrl: newCard.photoUrl || S.cards[idx].photoUrl,
       createdAt: S.cards[idx].createdAt,
       updatedAt: new Date().toISOString()
