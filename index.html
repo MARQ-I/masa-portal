@@ -1079,31 +1079,66 @@ function upsertCard(newCard){
 // Pending Excel rows for tag assignment
 window._excelPendingRows = [];
 
+// タグ名 → タグIDの解決（部分一致・大文字小文字無視）
+function resolveTagIds(tagStr){
+  if(!tagStr)return[];
+  const names=String(tagStr).split(/[,、・\/]+/).map(s=>s.trim()).filter(Boolean);
+  const resolved=[];
+  names.forEach(name=>{
+    const nl=name.toLowerCase();
+    // 完全一致 → 部分一致の順で検索
+    const t=S.tags.find(t=>t.name.toLowerCase()===nl)
+           ||S.tags.find(t=>t.name.toLowerCase().includes(nl)||nl.includes(t.name.toLowerCase()));
+    if(t&&!resolved.includes(t.id))resolved.push(t.id);
+  });
+  return resolved;
+}
+
 function importExcel(file){
   const reader=new FileReader();
   reader.onload=e=>{
     try{
       const wb=XLSX.read(e.target.result);
       const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
-      const parsed=rows.map(r=>({
-        id:uid(),name:r['氏名']||r['name']||r['Name']||'',company:r['会社名']||r['company']||r['Company']||'',
-        title:r['役職']||r['title']||'',email:r['メール']||r['email']||'',phone:r['電話']||r['phone']||'',
-        mobile:r['携帯']||r['mobile']||'',address:r['住所']||r['address']||'',url:r['URL']||r['url']||'',
-        memo:r['メモ']||r['memo']||'',tags:[],createdAt:new Date().toISOString()
-      })).filter(c=>c.name||c.company);
+      const parsed=rows.map(r=>{
+        // Excelのタグ列を自動マッピング
+        const excelTagVal=r['タグ']||r['tag']||r['Tag']||r['組織']||'';
+        const autoTags=resolveTagIds(excelTagVal);
+        return {
+          id:uid(),name:r['氏名']||r['name']||r['Name']||'',company:r['会社名']||r['company']||r['Company']||'',
+          title:r['役職']||r['title']||'',email:r['メール']||r['email']||'',phone:r['電話']||r['phone']||'',
+          mobile:r['携帯']||r['mobile']||'',address:r['住所']||r['address']||'',url:r['URL']||r['url']||'',
+          memo:r['メモ']||r['memo']||'',tags:autoTags,createdAt:new Date().toISOString(),
+          _excelTag:excelTagVal // keep original for display
+        };
+      }).filter(c=>c.name||c.company);
       if(!parsed.length){showToast('取込める名刺データがありません','error');return;}
-      // Store parsed rows and show tag selection modal
+
+      // タグ列があったかチェック
+      const hasTagCol=rows.some(r=>r['タグ']||r['tag']||r['組織']);
+      const autoMapped=parsed.filter(c=>c.tags.length>0).length;
+      const unmapped=parsed.filter(c=>c._excelTag&&c.tags.length===0).length;
+
       window._excelPendingRows=parsed;
       closeModal('modal-import');
-      // Show preview info
+
+      // プレビュー表示
       const names=parsed.slice(0,3).map(c=>c.name||c.company).join('、');
       const more=parsed.length>3?` 他${parsed.length-3}件`:'';
-      document.getElementById('excel-tag-preview').innerHTML=
-        `<div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">📋 取込み対象：${parsed.length}件</div>`+
-        `<div>${names}${more}</div>`;
-      // Render tag checkboxes
-      document.getElementById('excel-tag-list').innerHTML=S.tags.map(t=>`
-        <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-secondary);border-radius:var(--r);cursor:pointer;border:1px solid var(--border-color);transition:var(--ease)" 
+      let previewHtml=`<div style="font-weight:600;color:var(--text-primary);margin-bottom:6px">📋 取込み対象：${parsed.length}件</div><div style="margin-bottom:6px">${names}${more}</div>`;
+      if(hasTagCol){
+        previewHtml+=`<div style="margin-top:8px;padding:8px;background:var(--bg-primary);border-radius:6px;font-size:12px">`;
+        previewHtml+=`<span style="color:var(--accent-green)">✓ タグ列を自動認識：${autoMapped}件にタグを割り当て</span>`;
+        if(unmapped>0)previewHtml+=`<br><span style="color:var(--text-muted)">⚠ タグ未一致：${unmapped}件（下で追加タグを選択できます）</span>`;
+        previewHtml+=`</div>`;
+      }
+      document.getElementById('excel-tag-preview').innerHTML=previewHtml;
+
+      // タグチェックボックス（追加で一括付与するタグ）
+      document.getElementById('excel-tag-list').innerHTML=
+        `<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${hasTagCol?'さらに追加でタグを付与する場合は選択してください（任意）：':'全名刺に付与するタグを選択してください（複数可）：'}</div>`+
+        S.tags.map(t=>`
+        <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-secondary);border-radius:var(--r);cursor:pointer;border:1px solid var(--border-color);transition:var(--ease)"
                onmouseover="this.style.borderColor='${t.color}'" onmouseout="this.style.borderColor='var(--border-color)'">
           <input type="checkbox" data-tag-id="${t.id}" style="width:16px;height:16px;accent-color:${t.color}">
           <span style="width:10px;height:10px;border-radius:50%;background:${t.color};display:inline-block;flex-shrink:0"></span>
@@ -1120,21 +1155,22 @@ function getSelectedExcelTags(){
     .map(el=>el.dataset.tagId);
 }
 
-function execExcelImport(selectedTags){
+function execExcelImport(extraTags){
   const rows=window._excelPendingRows;
   if(!rows||!rows.length){closeModal('modal-excel-tags');return;}
   let cnt=0,upd=0;
   rows.forEach(c=>{
-    c.tags=selectedTags.slice(); // assign selected tags
+    // Merge: auto-mapped tags from Excel + manually selected extra tags
+    const merged=[...new Set([...(c.tags||[]),...extraTags])];
+    c.tags=merged;
+    delete c._excelTag;
     const result=upsertCard(c);
     if(result==='updated') upd++; else cnt++;
   });
   window._excelPendingRows=[];
   save();renderCards();renderSidebar();renderDashboard();
   closeModal('modal-excel-tags');
-  const tagNames=selectedTags.map(id=>S.tags.find(t=>t.id===id)?.name||id).join('・');
-  const tagInfo=tagNames?` ［${tagNames}］`:'';
-  const msg=upd>0?`${cnt}件を追加、${upd}件を上書き更新しました${tagInfo}`:`${cnt}件をインポートしました${tagInfo}`;
+  const msg=upd>0?`${cnt}件を追加、${upd}件を上書き更新しました`:`${cnt}件をインポートしました`;
   showToast(msg,'success');
 }
 
