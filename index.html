@@ -375,8 +375,8 @@ body.th-slate{--bg-primary:#0f172a;--bg-secondary:#1e293b;--bg-card:#334155}
         <div class="upzone" id="import-zone" onclick="document.getElementById('import-file').click()">
           <div class="uz-icon">📂</div>
           <div class="uz-text">クリックまたはドラッグ&ドロップ</div>
-          <div class="uz-sub">Excel(.xlsx/.xls) · 画像(JPG/PNG) · PDF対応</div>
-          <input type="file" id="import-file" accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.gif,.webp" style="display:none" onchange="handleImport(this)">
+          <div class="uz-sub">Excel(.xlsx/.xls) · 画像(JPG/PNG) · PDF対応 · 複数ファイル同時OK</div>
+          <input type="file" id="import-file" accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.gif,.webp" multiple style="display:none" onchange="handleImport(this)">
         </div>
         <div style="margin-top:18px">
           <div class="import-step"><div class="step-n">1</div><div><div style="font-size:13px;font-weight:600;color:var(--text-primary)">Excel / CSV</div><div style="font-size:12px;color:var(--text-secondary)">列名: 氏名・会社名・役職・メール・電話・携帯・住所・URL・メモ</div></div></div>
@@ -561,19 +561,19 @@ async function checkPassword(){
     if(v.length<4){errEl.textContent='4文字以上のパスワードを設定してください';errEl.style.display='block';return;}
     // 旧btoa形式からの移行チェック
     const hash=await sha256(v);
-    localStorage.setItem('_mpw','sha256:'+hash);
+    localStorage.setItem('_mpw','sha256:'+hash);localStorage.setItem('_mpw_date',Date.now());
     showApp();return;
   }
   // SHA-256形式
   if(stored.startsWith('sha256:')){
     const hash=await sha256(v);
-    if('sha256:'+hash===stored){showApp();}
+    if('sha256:'+hash===stored){if(!localStorage.getItem('_mpw_date'))localStorage.setItem('_mpw_date',Date.now());showApp();}
     else{errEl.textContent='パスワードが違います';errEl.style.display='block';document.getElementById('pw-inp').value='';document.getElementById('pw-inp').focus();}
   } else {
     // 旧btoa形式との後方互換（自動移行）
     if(btoa(encodeURIComponent(v))===stored){
       const hash=await sha256(v);
-      localStorage.setItem('_mpw','sha256:'+hash); // 自動アップグレード
+      localStorage.setItem('_mpw','sha256:'+hash);localStorage.setItem('_mpw_date',Date.now()); // 自動アップグレード
       showApp();
     } else {
       errEl.textContent='パスワードが違います';errEl.style.display='block';document.getElementById('pw-inp').value='';document.getElementById('pw-inp').focus();
@@ -583,6 +583,16 @@ async function checkPassword(){
 
 function showApp(){
   document.getElementById('pw-screen').style.display='none';
+  // 90日パスワード変更リマインダー
+  const pwDate=parseInt(localStorage.getItem('_mpw_date')||'0');
+  if(pwDate){
+    const days=Math.floor((Date.now()-pwDate)/(1000*60*60*24));
+    if(days>=90){
+      setTimeout(()=>{
+        showToast('⚠️ パスワードを設定してから'+days+'日が経過しています。セキュリティのため変更をお勧めします。','error',8000);
+      },1000);
+    }
+  }
   const app=document.getElementById('app');
   app.style.display='flex';
   load();renderSidebar();renderDashboard();renderCards();renderActionList();renderMinutesList();applyTheme();
@@ -942,11 +952,29 @@ function handlePhoto(input){
 function openImport(){openModal('modal-import');}
 
 async function handleImport(input){
-  const file=input.files[0];if(!file)return;
-  const ext=file.name.split('.').pop().toLowerCase();
-  if(['xlsx','xls','csv'].includes(ext)){importExcel(file);}
-  else if(['jpg','jpeg','png','gif','webp','pdf'].includes(ext)){importImage(file);}
-  else{showToast('対応していないファイル形式です','error');}
+  const files=Array.from(input.files);if(!files.length)return;
+  if(files.length===1){
+    const file=files[0];
+    const ext=file.name.split('.').pop().toLowerCase();
+    if(['xlsx','xls','csv'].includes(ext)){importExcel(file);}
+    else if(['jpg','jpeg','png','gif','webp','pdf'].includes(ext)){importImage(file);}
+    else{showToast('対応していないファイル形式です','error');}
+  } else {
+    // 複数ファイル処理
+    const imageFiles=files.filter(f=>['jpg','jpeg','png','gif','webp','pdf'].includes(f.name.split('.').pop().toLowerCase()));
+    const excelFiles=files.filter(f=>['xlsx','xls','csv'].includes(f.name.split('.').pop().toLowerCase()));
+    if(excelFiles.length>0){
+      showToast(`Excelファイルは1件ずつ取り込んでください（${excelFiles.map(f=>f.name).join(', ')}）`,'error');
+    }
+    if(imageFiles.length>0){
+      showToast(`${imageFiles.length}件の名刺を順番に読み取ります...`,'info');
+      for(let i=0;i<imageFiles.length;i++){
+        showToast(`読み取り中 ${i+1}/${imageFiles.length}：${imageFiles[i].name}`,'info');
+        await importImage(imageFiles[i]);
+        await new Promise(r=>setTimeout(r,500)); // API rate limit対策
+      }
+    }
+  }
 }
 
 function importExcel(file){
@@ -1176,7 +1204,7 @@ async function changePw(){
   const p1=document.getElementById('s-pw1').value,p2=document.getElementById('s-pw2').value;
   if(!p1||p1.length<4){showToast('4文字以上入力してください','error');return;}
   if(p1!==p2){showToast('パスワードが一致しません','error');return;}
-  const hash=await sha256(p1);localStorage.setItem('_mpw','sha256:'+hash);
+  const hash=await sha256(p1);localStorage.setItem('_mpw','sha256:'+hash);localStorage.setItem('_mpw_date',Date.now());
   document.getElementById('s-pw1').value='';document.getElementById('s-pw2').value='';
   showToast('パスワードを変更しました（SHA-256で保護）','success');
 }
@@ -1223,13 +1251,13 @@ function switchTab(btn,panelId){
 }
 
 // ── TOAST ──
-function showToast(msg,type='info'){
+function showToast(msg,type='info',duration=3000){
   const el=document.createElement('div');
   el.className=`toast ${type}`;
   const icons={success:'✓',error:'✕',info:'ℹ'};
   el.innerHTML=`<span>${icons[type]||'ℹ'}</span>${esc(msg)}`;
   document.getElementById('toast-container').appendChild(el);
-  setTimeout(()=>{el.style.opacity='0';el.style.transition='.3s';setTimeout(()=>el.remove(),300);},3000);
+  setTimeout(()=>{el.style.opacity='0';el.style.transition='.3s';setTimeout(()=>el.remove(),300);},duration);
 }
 
 // ── UTILS ──
@@ -1247,8 +1275,8 @@ document.addEventListener('DOMContentLoaded',()=>{
       e.preventDefault();zone.classList.remove('drag-over');
       const inp=zone.querySelector('input[type=file]');
       if(inp&&e.dataTransfer.files.length){
-        // Create new FileList-like input
-        const dt=new DataTransfer();dt.items.add(e.dataTransfer.files[0]);
+        const dt=new DataTransfer();
+        Array.from(e.dataTransfer.files).forEach(f=>dt.items.add(f));
         inp.files=dt.files;inp.dispatchEvent(new Event('change'));
       }
     });
