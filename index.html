@@ -165,9 +165,12 @@ html,body{width:100%;height:100%;background:var(--bg-primary);color:var(--text-p
 .tag-quick{position:relative;display:inline-block}
 .tag-quick-btn{background:var(--bg-secondary);border:1px dashed var(--border-color);border-radius:12px;padding:2px 8px;font-size:10px;color:var(--text-muted);cursor:pointer;transition:var(--ease)}
 .tag-quick-btn:hover{border-color:var(--accent);color:var(--accent)}
-.tag-quick-menu{position:absolute;bottom:110%;left:0;background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--r);padding:6px;min-width:160px;z-index:999;box-shadow:0 4px 20px rgba(0,0,0,.3);display:none}
+#tag-quick-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:none}
+#tag-quick-overlay.open{display:block}
+.tag-quick-menu{position:fixed;background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--r);padding:6px;min-width:180px;z-index:1001;box-shadow:0 8px 32px rgba(0,0,0,.5);display:none}
 .tag-quick-menu.open{display:block}
-.tag-quick-item{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);transition:var(--ease)}
+.tag-quick-menu-title{font-size:10px;color:var(--text-muted);padding:3px 8px 6px;border-bottom:1px solid var(--border-color);margin-bottom:4px;font-weight:600;letter-spacing:.5px}
+.tag-quick-item{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);transition:var(--ease)}
 .tag-quick-item:hover{background:var(--bg-secondary);color:var(--text-primary)}
 .tag-quick-item.selected{color:var(--text-primary);font-weight:600}
 .tag-edit-row{display:flex;align-items:center;gap:7px;padding:7px 0;border-bottom:1px solid var(--border-color)}
@@ -731,7 +734,7 @@ function renderCards(){
       ${c.address?`<div class="ci-row"><span class="ci-icon">⌖</span>${esc(c.address)}</div>`:''}
       <div class="card-tags">${tags}</div>
       <div class="card-acts" onclick="event.stopPropagation()">
-        <div class="tag-quick"><button class="tag-quick-btn" onclick="toggleTagMenu('${c.id}',event)">🏷 タグ</button><div class="tag-quick-menu" id="tqm-${c.id}">${S.tags.map(t=>`<div class="tag-quick-item ${(c.tags||[]).includes(t.id)?'selected':''}" onclick="quickTag('${c.id}','${t.id}',event)"><span style="width:8px;height:8px;border-radius:50%;background:${t.color};display:inline-block"></span>${esc(t.name)} ${(c.tags||[]).includes(t.id)?'✓':''}</div>`).join('')}</div></div>
+        <div class="tag-quick"><button class="tag-quick-btn" onclick="toggleTagMenu('${c.id}',event)">🏷 タグ</button><div class="tag-quick-menu" id="tqm-${c.id}"><div class="tag-quick-menu-title">タグ / 組織</div>${S.tags.map(t=>`<div class="tag-quick-item ${(c.tags||[]).includes(t.id)?'selected':''}" onclick="quickTag('${c.id}','${t.id}',event)"><span style="width:8px;height:8px;border-radius:50%;background:${t.color};flex-shrink:0;display:inline-block"></span><span style="flex:1">${esc(t.name)}</span>${(c.tags||[]).includes(t.id)?'<span style="color:var(--accent-green)">✓</span>':''}</div>`).join('')}</div></div>
         <button class="btn btn-ai btn-sm" onclick="runAI('${c.id}')">✦ AI分析</button>
         <button class="btn btn-s btn-sm" onclick="openDetail('${c.id}')">詳細</button>
         <button class="btn btn-g btn-sm" style="margin-left:auto" onclick="delCard('${c.id}')">🗑</button>
@@ -741,12 +744,41 @@ function renderCards(){
 }
 
 
+function closeTagMenus(){
+  document.querySelectorAll('.tag-quick-menu.open').forEach(m=>m.classList.remove('open'));
+  const ov=document.getElementById('tag-quick-overlay');if(ov)ov.classList.remove('open');
+}
 function toggleTagMenu(cardId,e){
   e.stopPropagation();
-  // Close all other menus
-  document.querySelectorAll('.tag-quick-menu.open').forEach(m=>{if(m.id!=='tqm-'+cardId)m.classList.remove('open');});
   const menu=document.getElementById('tqm-'+cardId);
-  if(menu)menu.classList.toggle('open');
+  if(!menu)return;
+  const isOpen=menu.classList.contains('open');
+  closeTagMenus();
+  if(!isOpen){
+    // Position menu near button using fixed coords
+    const btn=e.currentTarget;
+    const rect=btn.getBoundingClientRect();
+    const menuH=S.tags.length*36+50;
+    const spaceBelow=window.innerHeight-rect.bottom;
+    const spaceAbove=rect.top;
+    if(spaceBelow>=menuH||spaceBelow>=spaceAbove){
+      // Open below
+      menu.style.top=(rect.bottom+6)+'px';
+      menu.style.bottom='auto';
+    } else {
+      // Open above
+      menu.style.bottom=(window.innerHeight-rect.top+6)+'px';
+      menu.style.top='auto';
+    }
+    menu.style.left=rect.left+'px';
+    // Prevent overflow right
+    setTimeout(()=>{
+      const mr=menu.getBoundingClientRect();
+      if(mr.right>window.innerWidth-8)menu.style.left=(window.innerWidth-mr.width-8)+'px';
+    },0);
+    menu.classList.add('open');
+    const ov=document.getElementById('tag-quick-overlay');if(ov)ov.classList.add('open');
+  }
 }
 function quickTag(cardId,tagId,e){
   e.stopPropagation();
@@ -754,17 +786,19 @@ function quickTag(cardId,tagId,e){
   if(!c.tags)c.tags=[];
   const idx=c.tags.indexOf(tagId);
   if(idx>=0){c.tags.splice(idx,1);}else{c.tags.push(tagId);}
+  // Remember menu position before re-render
+  const menu=document.getElementById('tqm-'+cardId);
+  const savedTop=menu?menu.style.top:'';
+  const savedBottom=menu?menu.style.bottom:'';
+  const savedLeft=menu?menu.style.left:'';
   save();renderCards();renderSidebar();renderDashboard();
-  // Keep menu open after selection
+  // Re-open menu at same position after re-render
   setTimeout(()=>{
-    const menu=document.getElementById('tqm-'+cardId);
-    if(menu)menu.classList.add('open');
-  },50);
+    const m2=document.getElementById('tqm-'+cardId);
+    if(m2){m2.style.top=savedTop;m2.style.bottom=savedBottom;m2.style.left=savedLeft;m2.classList.add('open');}
+    const ov=document.getElementById('tag-quick-overlay');if(ov)ov.classList.add('open');
+  },30);
 }
-// Close tag menus on outside click
-document.addEventListener('click',()=>{
-  document.querySelectorAll('.tag-quick-menu.open').forEach(m=>m.classList.remove('open'));
-});
 // ── DETAIL MODAL ──
 function openDetail(id){
   const c=S.cards.find(x=>x.id===id);if(!c)return;
@@ -1355,5 +1389,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 });
 </script>
+<div id="tag-quick-overlay" onclick="closeTagMenus()"></div>
 </body>
 </html>
