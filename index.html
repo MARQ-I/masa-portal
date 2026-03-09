@@ -547,16 +547,49 @@ let S = {
 };
 
 // ── STORAGE ──
-function save(){try{localStorage.setItem(SK,JSON.stringify(S))}catch(e){}}
+function sanitizeStr(v){
+  // テキストフィールドの制御文字を除去（JSON破損を防止）
+  if(typeof v!=='string')return v;
+  return v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
+}
+function sanitizeObj(obj){
+  if(Array.isArray(obj))return obj.map(sanitizeObj);
+  if(obj&&typeof obj==='object'){
+    const out={};
+    for(const k in obj)out[k]=sanitizeObj(obj[k]);
+    return out;
+  }
+  return sanitizeStr(obj);
+}
+function save(){
+  try{
+    const clean=sanitizeObj(S);
+    localStorage.setItem(SK,JSON.stringify(clean));
+  }catch(e){
+    showToast('保存エラー: '+e.message,'error');
+    console.error('Save error:',e);
+  }
+}
 function load(){
   try{
     const d=localStorage.getItem(SK);
     if(d){
-      const p=JSON.parse(d);
+      let p;
+      try{p=JSON.parse(d);}
+      catch(e){
+        // JSON破損時：バックアップを試みてリセット
+        console.error('JSON parse error, attempting repair:',e);
+        const repaired=d.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
+        try{p=JSON.parse(repaired);}
+        catch(e2){
+          showToast('データ読み込みエラーが発生しました。データが一部失われている可能性があります。','error');
+          return;
+        }
+      }
       S.cards=p.cards||[];S.actions=p.actions||[];S.minutes=p.minutes||[];
       S.tags=p.tags||S.tags;S.settings={...S.settings,...(p.settings||{})};
     }
-  }catch(e){}
+  }catch(e){console.error('Load error:',e);}
 }
 
 // ── AUTH ──
