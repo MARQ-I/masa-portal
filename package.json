@@ -1,0 +1,10 @@
+{
+  "name": "masa-portal",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "MASA Portal - Business intelligence hub with cloud sync via Netlify Blobs",
+  "dependencies": {
+    "@netlify/blobs": "^8.0.0"
+  }
+}

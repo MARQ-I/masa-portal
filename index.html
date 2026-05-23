@@ -392,7 +392,7 @@ body.th-slate{--bg-primary:#0f172a;--bg-secondary:#1e293b;--bg-card:#334155}
         </div>
         <div style="margin-top:18px">
           <div class="import-step"><div class="step-n">1</div><div><div style="font-size:13px;font-weight:600;color:var(--text-primary)">Excel / CSV</div><div style="font-size:12px;color:var(--text-secondary)">列名: 氏名・会社名・役職・メール・電話・携帯・住所・URL・メモ</div></div></div>
-          <div class="import-step"><div class="step-n">2</div><div><div style="font-size:13px;font-weight:600;color:var(--text-primary)">画像 / PDF（AI OCR）</div><div style="font-size:12px;color:var(--text-secondary)">名刺写真をAIが自動読み取り（APIキー必要）</div></div></div>
+          <div class="import-step"><div class="step-n">2</div><div><div style="font-size:13px;font-weight:600;color:var(--text-primary)">画像 / PDF（AI OCR）</div><div style="font-size:12px;color:var(--text-secondary)">名刺写真をAIが自動読み取り（サーバー経由）</div></div></div>
         </div>
       </div>
       <div id="imp-tab2" class="tab-panel">
@@ -454,10 +454,9 @@ body.th-slate{--bg-primary:#0f172a;--bg-secondary:#1e293b;--bg-card:#334155}
       <div id="stab-api" class="tab-panel active">
         <div class="set-sec">
           <div class="set-sec-title">🤖 Anthropic API</div>
-          <div class="fg">
-            <label class="fl">APIキー</label>
-            <input type="password" id="s-apikey" class="fi" placeholder="sk-ant-api03-...">
-            <div style="font-size:11px;color:var(--text-secondary);margin-top:5px">AI機能（名刺OCR・会社分析・アクション生成）に必要です。<a href="https://console.anthropic.com/" target="_blank" style="color:var(--accent-light)">取得はこちら →</a></div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.7">
+            APIキーは<b style="color:var(--text-primary)">サーバー側</b>で管理されています（Netlify 環境変数 <code style="color:var(--accent-light);font-family:'JetBrains Mono',monospace">ANTHROPIC_API_KEY</code>）。<br>
+            ブラウザにキーは保存されません。変更が必要な場合は管理者にご連絡ください。
           </div>
         </div>
       </div>
@@ -494,10 +493,11 @@ body.th-slate{--bg-primary:#0f172a;--bg-secondary:#1e293b;--bg-card:#334155}
 
       <div id="stab-sec" class="tab-panel">
         <div class="set-sec">
-          <div class="set-sec-title">🔒 パスワード変更</div>
-          <div class="fg"><label class="fl">新しいパスワード</label><input type="password" id="s-pw1" class="fi" placeholder="4文字以上"></div>
-          <div class="fg"><label class="fl">確認</label><input type="password" id="s-pw2" class="fi" placeholder="同じパスワード"></div>
-          <button class="btn btn-p" onclick="changePw()">🔒 変更</button>
+          <div class="set-sec-title">🔒 セッション</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.7">
+            共有パスワードは Netlify 環境変数 <code style="color:var(--accent-light);font-family:'JetBrains Mono',monospace">SHARE_PASSWORD</code> で管理されています。変更が必要な場合は管理者にご連絡ください。
+          </div>
+          <button class="btn btn-d" onclick="logout()">⎋ ログアウト</button>
         </div>
       </div>
 
@@ -513,7 +513,7 @@ body.th-slate{--bg-primary:#0f172a;--bg-secondary:#1e293b;--bg-card:#334155}
             名刺: <b id="dc-cards" style="color:var(--text-primary)">-</b>件 ／
             アクション: <b id="dc-actions" style="color:var(--text-primary)">-</b>件 ／
             議事録: <b id="dc-minutes" style="color:var(--text-primary)">-</b>件
-            <div style="margin-top:6px">データはブラウザのlocalStorageに保存されます</div>
+            <div style="margin-top:6px">データは Netlify Blobs に保存され、全端末・全メンバーで共有されます</div>
           </div>
         </div>
       </div>
@@ -531,7 +531,11 @@ body.th-slate{--bg-primary:#0f172a;--bg-secondary:#1e293b;--bg-card:#334155}
 // ============================================================
 'use strict';
 
-const SK = 'masa_portal_v2';
+const LS_SETTINGS = 'mp_settings';
+const SAVE_DEBOUNCE_MS = 500;
+const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;
+let _saveTimer = null;
+let _saveInflight = null;
 let S = {
   cards:[],actions:[],minutes:[],
   tags:[
@@ -542,7 +546,7 @@ let S = {
     {id:'vec',name:'ベクトル 社外取締役',color:'#ef4444'},
     {id:'med',name:'健康会 新規事業',color:'#06b6d4'},
   ],
-  settings:{apiKey:'',theme:'default',accent:'#3b82f6'},
+  settings:{theme:'default',accent:'#3b82f6'},
   view:'dashboard',activeTag:null,q:'',selectedCard:null
 };
 
@@ -561,100 +565,146 @@ function sanitizeObj(obj){
   }
   return sanitizeStr(obj);
 }
-function save(){
-  try{
-    const clean=sanitizeObj(S);
-    localStorage.setItem(SK,JSON.stringify(clean));
-  }catch(e){
-    showToast('保存エラー: '+e.message,'error');
-    console.error('Save error:',e);
-  }
+function saveLocalSettings(){
+  try{ localStorage.setItem(LS_SETTINGS, JSON.stringify(S.settings||{})); }catch(e){}
 }
-function load(){
+function loadLocalSettings(){
   try{
-    const d=localStorage.getItem(SK);
-    if(d){
-      let p;
-      try{p=JSON.parse(d);}
-      catch(e){
-        // JSON破損時：バックアップを試みてリセット
-        console.error('JSON parse error, attempting repair:',e);
-        const repaired=d.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
-        try{p=JSON.parse(repaired);}
-        catch(e2){
-          showToast('データ読み込みエラーが発生しました。データが一部失われている可能性があります。','error');
-          return;
-        }
-      }
-      S.cards=p.cards||[];S.actions=p.actions||[];S.minutes=p.minutes||[];
-      S.tags=p.tags||S.tags;S.settings={...S.settings,...(p.settings||{})};
-    }
-  }catch(e){console.error('Load error:',e);}
+    const v=localStorage.getItem(LS_SETTINGS);
+    if(v){ const p=JSON.parse(v); S.settings={...S.settings,...p}; }
+  }catch(e){}
 }
 
-// ── AUTH ──
-async function sha256(str){
-  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+// 写真アクセサ（Phase 2 で photoRef 対応に拡張する余地を残す）
+function getPhotoSrc(c){ return (c && c.photoUrl) || null; }
+async function setCardPhoto(card, dataUrl){ card.photoUrl = dataUrl; }
+
+// デバウンス付き保存。既存呼び出し箇所はすべて save() のままで動作する。
+function save(){
+  if(_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(()=>{ _saveTimer=null; flushSave().catch(()=>{}); }, SAVE_DEBOUNCE_MS);
 }
+
+// 即時保存。バルクインポート / clearAll などで await して使う。
+async function flushSave(){
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
+  if(_saveInflight){ try{ await _saveInflight; }catch{} }
+  const clean = sanitizeObj({cards:S.cards, actions:S.actions, minutes:S.minutes, tags:S.tags});
+  const body = JSON.stringify(clean);
+  if(body.length > MAX_PAYLOAD_BYTES){
+    showToast('保存データが上限(5MB)に近づいています。写真の数を減らすか、写真分離機能(Phase 2)が必要です','error',8000);
+    throw new Error('Payload exceeds 5MB');
+  }
+  const doRequest = async ()=>{
+    const res = await fetch('/api/data', {method:'POST', headers:{'Content-Type':'application/json'}, body, credentials:'same-origin'});
+    if(res.status === 401){
+      showToast('セッションが切れました。再ログインしてください','error',5000);
+      setTimeout(()=>location.reload(), 1500);
+      throw new Error('Unauthorized');
+    }
+    if(!res.ok) throw new Error('HTTP '+res.status);
+  };
+  _saveInflight = (async ()=>{
+    try{ await doRequest(); }
+    catch(e){
+      showToast('保存に失敗しました。再試行中…','info',3000);
+      await new Promise(r=>setTimeout(r,3000));
+      try{ await doRequest(); }
+      catch(e2){
+        showToast('保存できません: '+e2.message+'。ネットワーク確認後、再操作してください','error',10000);
+        throw e2;
+      }
+    }
+  })();
+  try{ await _saveInflight; }
+  finally{ _saveInflight=null; }
+}
+
+// Blobs から state を読み込み S に反映（settings は触らない）
+async function load(){
+  const res = await fetch('/api/data', {credentials:'same-origin'});
+  if(res.status === 401) throw new Error('unauthorized');
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const text = await res.text();
+  if(!text) return;
+  let p;
+  try{ p=JSON.parse(text); }
+  catch(e){ throw new Error('サーバーデータが不正です'); }
+  S.cards = p.cards||[];
+  S.actions = p.actions||[];
+  S.minutes = p.minutes||[];
+  S.tags = p.tags||S.tags;
+}
+
+
+// ── AUTH ──
+// 共有パスワードはサーバー側 (SHARE_PASSWORD) で照合。成功時に HttpOnly Cookie が発行される。
 async function checkPassword(){
   const v=document.getElementById('pw-inp').value;
-  const stored=localStorage.getItem('_mpw');
   const errEl=document.getElementById('pw-err');
   errEl.style.display='none';
-  if(!stored){
-    if(v.length<4){errEl.textContent='4文字以上のパスワードを設定してください';errEl.style.display='block';return;}
-    // 旧btoa形式からの移行チェック
-    const hash=await sha256(v);
-    localStorage.setItem('_mpw','sha256:'+hash);localStorage.setItem('_mpw_date',Date.now());
-    showApp();return;
-  }
-  // SHA-256形式
-  if(stored.startsWith('sha256:')){
-    const hash=await sha256(v);
-    if('sha256:'+hash===stored){if(!localStorage.getItem('_mpw_date'))localStorage.setItem('_mpw_date',Date.now());showApp();}
-    else{errEl.textContent='パスワードが違います';errEl.style.display='block';document.getElementById('pw-inp').value='';document.getElementById('pw-inp').focus();}
-  } else {
-    // 旧btoa形式との後方互換（自動移行）
-    if(btoa(encodeURIComponent(v))===stored){
-      const hash=await sha256(v);
-      localStorage.setItem('_mpw','sha256:'+hash);localStorage.setItem('_mpw_date',Date.now()); // 自動アップグレード
-      showApp();
-    } else {
-      errEl.textContent='パスワードが違います';errEl.style.display='block';document.getElementById('pw-inp').value='';document.getElementById('pw-inp').focus();
+  if(!v){ errEl.textContent='パスワードを入力してください'; errEl.style.display='block'; return; }
+  try{
+    const res=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:v}),credentials:'same-origin'});
+    if(res.status===401){
+      errEl.textContent='パスワードが違います';
+      errEl.style.display='block';
+      document.getElementById('pw-inp').value='';
+      document.getElementById('pw-inp').focus();
+      return;
     }
+    if(!res.ok){
+      errEl.textContent='認証エラー (HTTP '+res.status+')';
+      errEl.style.display='block';
+      return;
+    }
+    // 認証成功 → データ取得 → アプリ表示
+    try{ await load(); }
+    catch(e){ showToast('データ読込に失敗しました: '+e.message,'error',6000); }
+    showApp();
+  }catch(e){
+    errEl.textContent='通信エラー: '+e.message;
+    errEl.style.display='block';
   }
+}
+
+async function logout(){
+  try{ await fetch('/api/auth',{method:'DELETE',credentials:'same-origin'}); }catch{}
+  location.reload();
 }
 
 function showApp(){
   document.getElementById('pw-screen').style.display='none';
-  // 90日パスワード変更リマインダー
-  const pwDate=parseInt(localStorage.getItem('_mpw_date')||'0');
-  if(pwDate){
-    const days=Math.floor((Date.now()-pwDate)/(1000*60*60*24));
-    if(days>=90){
-      setTimeout(()=>{
-        showToast('⚠️ パスワードを設定してから'+days+'日が経過しています。セキュリティのため変更をお勧めします。','error',8000);
-      },1000);
-    }
-  }
   const app=document.getElementById('app');
   app.style.display='flex';
-  load();renderSidebar();renderDashboard();renderCards();renderActionList();renderMinutesList();applyTheme();
-  // Search
+  loadLocalSettings();
+  renderSidebar();renderDashboard();renderCards();renderActionList();renderMinutesList();applyTheme();
   document.getElementById('search-inp').addEventListener('input',function(){
     S.q=this.value.trim();renderCards();
   });
-  // Init format table
   const rows=[['氏名','名前','✓'],['会社名','会社・法人名','✓'],['役職','肩書',''],['メール','メールアドレス',''],['電話','電話番号',''],['携帯','携帯番号',''],['住所','所在地',''],['URL','Webサイト',''],['メモ','自由記述','']];
   document.getElementById('format-table').innerHTML=rows.map(([c,d,r])=>`<tr><td style="padding:7px 11px;border:1px solid var(--border-color);font-family:monospace;color:var(--accent-light)">${c}</td><td style="padding:7px 11px;border:1px solid var(--border-color);color:var(--text-secondary)">${d}</td><td style="padding:7px 11px;border:1px solid var(--border-color);color:var(--accent-green)">${r}</td></tr>`).join('');
 }
 
-window.addEventListener('load',()=>{
-  const stored=localStorage.getItem('_mpw');
-  if(stored){document.getElementById('pw-lbl').textContent='パスワードを入力';document.getElementById('pw-hint').textContent='';}
-  else{document.getElementById('pw-lbl').textContent='新しいパスワードを設定';document.getElementById('pw-hint').textContent='初回起動：パスワードを設定してください';}
+// 起動時：既存セッションがあれば自動ログイン、無ければパスワード画面のまま
+window.addEventListener('load', async ()=>{
+  document.getElementById('pw-lbl').textContent='パスワードを入力';
+  document.getElementById('pw-hint').textContent='';
   document.getElementById('pw-inp').addEventListener('keydown',e=>{if(e.key==='Enter')checkPassword();});
+  try{
+    const res=await fetch('/api/data',{credentials:'same-origin'});
+    if(res.ok){
+      const text=await res.text();
+      if(text){
+        try{
+          const p=JSON.parse(text);
+          S.cards=p.cards||[]; S.actions=p.actions||[]; S.minutes=p.minutes||[];
+          S.tags=p.tags||S.tags;
+        }catch{}
+      }
+      showApp();
+    }
+  }catch{}
 });
 
 // ── SIDEBAR ──
@@ -759,8 +809,7 @@ function renderCards(){
         <div><div class="card-co">${esc(c.company||'会社名未入力')}</div>
           <div class="card-nm">${esc(c.name||'氏名未入力')}</div>
           <div class="card-ti">${esc(c.title||'')}</div></div>
-        ${c.photoUrl?`<img src="${c.photoUrl}" style="width:42px;height:42px;border-radius:7px;object-fit:cover;border:1px solid var(--border-color)" alt="">`
-          :`<div style="width:42px;height:42px;border-radius:7px;background:var(--bg-secondary);border:1px solid var(--border-color);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text-muted)">👤</div>`}
+        ${(()=>{const _src=getPhotoSrc(c); return _src?`<img src="${_src}" style="width:42px;height:42px;border-radius:7px;object-fit:cover;border:1px solid var(--border-color)" alt="">`:`<div style="width:42px;height:42px;border-radius:7px;background:var(--bg-secondary);border:1px solid var(--border-color);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text-muted)">👤</div>`;})()}
       </div>
       ${c.email?`<div class="ci-row"><span class="ci-icon">✉</span>${esc(c.email)}</div>`:''}
       ${c.phone?`<div class="ci-row"><span class="ci-icon">☎</span>${esc(c.phone)}</div>`:''}
@@ -861,8 +910,7 @@ function openDetail(id){
           <div class="card-tags" style="margin-top:14px">${tags}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:9px">
-          ${c.photoUrl?`<img src="${c.photoUrl}" style="max-width:180px;border-radius:8px;border:1px solid var(--border-color)" alt="">`:
-            `<div style="width:80px;height:80px;border-radius:10px;background:var(--bg-secondary);border:1px solid var(--border-color);display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--text-muted)">👤</div>`}
+          ${(()=>{const _src=getPhotoSrc(c); return _src?`<img src="${_src}" style="max-width:180px;border-radius:8px;border:1px solid var(--border-color)" alt="">`:`<div style="width:80px;height:80px;border-radius:10px;background:var(--bg-secondary);border:1px solid var(--border-color);display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--text-muted)">👤</div>`;})()}
           <button class="btn btn-s btn-sm" onclick="editCard('${c.id}')">✏ 編集</button>
           <button class="btn btn-ai btn-sm" onclick="runAI('${c.id}')"><span class="spinner" id="ai-sp" style="display:none"></span>✦ AI分析実行</button>
         </div>
@@ -918,22 +966,29 @@ function renderAction(a){
 }
 
 // ── AI ──
+// AI 呼び出しはすべてサーバー (/api/ai) 経由。APIキーはブラウザに持たない。
+async function callAI(payload){
+  const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'same-origin'});
+  if(res.status===401){
+    showToast('セッション切れ。再ログインしてください','error',5000);
+    setTimeout(()=>location.reload(),1500);
+    throw new Error('Unauthorized');
+  }
+  if(!res.ok){
+    let msg='HTTP '+res.status;
+    try{ const j=await res.json(); if(j&&j.error) msg=j.error; }catch{}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 async function runAI(cardId){
   const c=S.cards.find(x=>x.id===cardId);if(!c)return;
-  const apiKey=S.settings.apiKey;
-  if(!apiKey){showToast('設定でAPIキーを設定してください','error');openSettings('api');return;}
   document.querySelectorAll('#ai-sp,#ai-sp2').forEach(el=>el.style.display='inline-block');
   showToast('AI分析中...','info');
-  const prompt=`以下の名刺情報を元に3つの情報を生成。JSONのみ返してください（マークダウン不要）:
-名前:${c.name||'不明'} 会社:${c.company||'不明'} 役職:${c.title||''} URL:${c.url||''}
-{"company_overview":"会社概要200字","philosophy":"企業理念150字","talk_points":"会議トークポイント3〜5点（箇条書き）"}`;
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
-    const data=await res.json();
-    if(data.error)throw new Error(data.error.message);
-    const text=data.content[0].text;
-    const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+    const data=await callAI({kind:'analyze',card:{name:c.name||'',company:c.company||'',title:c.title||'',url:c.url||''}});
+    const parsed=JSON.parse((data.text||'').replace(/```json|```/g,'').trim());
     const idx=S.cards.findIndex(x=>x.id===cardId);
     S.cards[idx].aiCompany=parsed.company_overview;
     S.cards[idx].aiPhilosophy=parsed.philosophy;
@@ -946,20 +1001,11 @@ async function runAI(cardId){
 
 async function genActionFromMin(minId,cardId){
   const m=S.minutes.find(x=>x.id===minId);if(!m)return;
-  const apiKey=S.settings.apiKey;
-  if(!apiKey){showToast('APIキーが必要です','error');return;}
   showToast('アクション生成中...','info');
-  const card=S.cards.find(c=>c.id===cardId);
-  const prompt=`議事録からアクションプランを生成。JSONのみ返してください（マークダウン不要）:
-タイトル:${m.title||'会議'} 参加者:${card?card.name+'/'+card.company:''}
-内容:${m.content}
-{"actions":[{"title":"内容","priority":"high|mid|low","deadline":"YYYY-MM-DD","assignee":"担当"}]}`;
+  const card=S.cards.find(c=>c.id===cardId)||null;
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
-    const data=await res.json();
-    if(data.error)throw new Error(data.error.message);
-    const parsed=JSON.parse(data.content[0].text.replace(/```json|```/g,'').trim());
+    const data=await callAI({kind:'actions',minute:{title:m.title||'',content:m.content||''},card:card?{name:card.name||'',company:card.company||''}:null});
+    const parsed=JSON.parse((data.text||'').replace(/```json|```/g,'').trim());
     parsed.actions.forEach(a=>S.actions.push({id:uid(),cardId,minId,title:a.title,priority:a.priority||'mid',deadline:a.deadline||'',assignee:a.assignee||'',done:false,createdAt:new Date().toISOString()}));
     save();showToast(`${parsed.actions.length}件のアクションを作成`,'success');
     renderActionList();renderSidebar();
@@ -989,7 +1035,7 @@ function editCard(id){
   document.getElementById('cf-url').value=c.url||'';
   document.getElementById('cf-address').value=c.address||'';
   document.getElementById('cf-memo').value=c.memo||'';
-  if(c.photoUrl){document.getElementById('cf-photo').src=c.photoUrl;document.getElementById('cf-photo').style.display='block';}
+  {const _src=getPhotoSrc(c); if(_src){document.getElementById('cf-photo').src=_src;document.getElementById('cf-photo').style.display='block';}}
   document.getElementById('card-form-title').textContent='名刺を編集';
   renderTagCBs(c.tags||[]);
   closeModal('modal-detail');
@@ -1195,7 +1241,6 @@ function execExcelImport(extraTags){
   if(!rows||!rows.length){closeModal('modal-excel-tags');return;}
   let cnt=0,upd=0;
   rows.forEach(c=>{
-    // Merge: auto-mapped tags from Excel + manually selected extra tags
     const merged=[...new Set([...(c.tags||[]),...extraTags])];
     c.tags=merged;
     delete c._excelTag;
@@ -1203,43 +1248,75 @@ function execExcelImport(extraTags){
     if(result==='updated') upd++; else cnt++;
   });
   window._excelPendingRows=[];
-  save();renderCards();renderSidebar();renderDashboard();
+  renderCards();renderSidebar();renderDashboard();
   closeModal('modal-excel-tags');
-  const msg=upd>0?`${cnt}件を追加、${upd}件を上書き更新しました`:`${cnt}件をインポートしました`;
-  showToast(msg,'success');
+  // バルク投入は flushSave で即時送信（750件移行などの取りこぼし防止）
+  flushSave().then(()=>{
+    const msg=upd>0?`${cnt}件を追加、${upd}件を上書き更新しました`:`${cnt}件をインポートしました`;
+    showToast(msg,'success');
+  }).catch(err=>showToast('インポート保存失敗: '+err.message,'error',8000));
+}
+
+// 画像を長辺 maxDim 以内の JPEG にリサイズ／圧縮。PDF はそのまま base64 化。
+function resizeImageToJpeg(file, maxDim, quality){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        const ratio=Math.min(1, maxDim/Math.max(img.width,img.height));
+        const w=Math.max(1, Math.round(img.width*ratio));
+        const h=Math.max(1, Math.round(img.height*ratio));
+        const canvas=document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        const ctx=canvas.getContext('2d');
+        ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img,0,0,w,h);
+        const dataUrl=canvas.toDataURL('image/jpeg', quality);
+        resolve({dataUrl, base64:dataUrl.split(',')[1]});
+      };
+      img.onerror=()=>reject(new Error('画像読込失敗'));
+      img.src=reader.result;
+    };
+    reader.onerror=()=>reject(new Error('ファイル読込失敗'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function arrayBufferToBase64(buf){
+  let binary=''; const bytes=new Uint8Array(buf);
+  const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk){
+    binary+=String.fromCharCode.apply(null, bytes.subarray(i,i+chunk));
+  }
+  return btoa(binary);
 }
 
 async function importImage(file){
-  const apiKey=S.settings.apiKey;
-  if(!apiKey){showToast('画像インポートにはAPIキーが必要です','error');return;}
   showToast('名刺読み取り中...','info');
-  const reader=new FileReader();
-  reader.onload=async e=>{
-    const base64=e.target.result.split(',')[1];
+  try{
     const isPdf=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
-    const mime=isPdf?'application/pdf':(file.type||'image/jpeg');
-    try{
-      // PDFはdocumentタイプ、画像はimageタイプで送信
-      const contentBlock=isPdf
-        ?{type:'document',source:{type:'base64',media_type:'application/pdf',data:base64}}
-        :{type:'image',source:{type:'base64',media_type:mime,data:base64}};
-      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:[
-          contentBlock,
-          {type:'text',text:'名刺の情報をJSONで返してください（マークダウン不要）:\n{"name":"","company":"","title":"","email":"","phone":"","mobile":"","address":"","url":""}'}
-        ]}]})});
-      const data=await res.json();
-      if(data.error)throw new Error(data.error.message);
-      const parsed=JSON.parse(data.content[0].text.replace(/```json|```/g,'').trim());
-      const photoUrl=isPdf?null:e.target.result;
-      const newCard={id:uid(),...parsed,photoUrl,tags:[],createdAt:new Date().toISOString()};
-      const result=upsertCard(newCard);
-      save();renderCards();renderSidebar();renderDashboard();closeModal('modal-import');
-      showToast(result==='updated'?`${parsed.name||'名刺'}の情報を上書き更新しました`:'名刺を読み取りました','success');
-    }catch(err){showToast('読み取りエラー: '+err.message,'error');}
-  };
-  reader.readAsDataURL(file);
+    let base64, mime, photoUrl;
+    if(isPdf){
+      const buf=await file.arrayBuffer();
+      base64=arrayBufferToBase64(buf);
+      mime='application/pdf';
+      photoUrl=null;
+    }else{
+      // 1280px / JPEG q=0.75 にリサイズ（Phase 1 の写真サイズ対策）
+      const r=await resizeImageToJpeg(file, 1280, 0.75);
+      base64=r.base64;
+      mime='image/jpeg';
+      photoUrl=r.dataUrl;
+    }
+    const data=await callAI({kind:'ocr', mime, data:base64});
+    const parsed=JSON.parse((data.text||'').replace(/```json|```/g,'').trim());
+    const newCard={id:uid(),...parsed,tags:[],createdAt:new Date().toISOString()};
+    if(photoUrl) await setCardPhoto(newCard, photoUrl);
+    const result=upsertCard(newCard);
+    save();renderCards();renderSidebar();renderDashboard();closeModal('modal-import');
+    showToast(result==='updated'?`${parsed.name||'名刺'}の情報を上書き更新しました`:'名刺を読み取りました','success');
+  }catch(err){showToast('読み取りエラー: '+err.message,'error');}
 }
 
 // ── EXPORT ──
@@ -1357,7 +1434,7 @@ function delMinute(id){
 
 // ── SETTINGS ──
 function openSettings(tab){
-  document.getElementById('s-apikey').value=S.settings.apiKey||'';
+  // APIキーはサーバー側で管理（ブラウザ未保持）。ここでは読み込み不要。
   renderTagsSettings();
   updateThemeBtns();
   document.getElementById('dc-cards').textContent=S.cards.length;
@@ -1393,12 +1470,15 @@ function addTag(){
 }
 
 function saveSettings(){
-  S.settings.apiKey=document.getElementById('s-apikey').value.trim();
-  save();applyTheme();closeModal('modal-settings');showToast('設定を保存しました','success');
+  // theme/accent のみ端末ローカルに保存（クラウド同期しない）
+  saveLocalSettings();
+  applyTheme();
+  closeModal('modal-settings');
+  showToast('設定を保存しました','success');
 }
 
 function setTheme(th){
-  S.settings.theme=th;updateThemeBtns();applyTheme();save();
+  S.settings.theme=th;updateThemeBtns();applyTheme();saveLocalSettings();
 }
 function updateThemeBtns(){
   document.querySelectorAll('.theme-btn').forEach(b=>{b.style.border=b.dataset.th===S.settings.theme?'2px solid var(--accent)':'2px solid transparent';});
@@ -1407,20 +1487,12 @@ function setAccent(c){
   S.settings.accent=c;
   document.documentElement.style.setProperty('--accent',c);
   document.documentElement.style.setProperty('--accent-light',c);
-  save();
+  saveLocalSettings();
 }
 function applyTheme(){
   const themes={default:'',dark:'th-dark',blue:'th-blue',green:'th-green',slate:'th-slate'};
   document.body.className=themes[S.settings.theme||'default']||'';
   if(S.settings.accent)document.documentElement.style.setProperty('--accent',S.settings.accent);
-}
-async function changePw(){
-  const p1=document.getElementById('s-pw1').value,p2=document.getElementById('s-pw2').value;
-  if(!p1||p1.length<4){showToast('4文字以上入力してください','error');return;}
-  if(p1!==p2){showToast('パスワードが一致しません','error');return;}
-  const hash=await sha256(p1);localStorage.setItem('_mpw','sha256:'+hash);localStorage.setItem('_mpw_date',Date.now());
-  document.getElementById('s-pw1').value='';document.getElementById('s-pw2').value='';
-  showToast('パスワードを変更しました（SHA-256で保護）','success');
 }
 
 // ── DATA ──
@@ -1432,13 +1504,15 @@ function exportAll(){
 function importAll(input){
   const file=input.files[0];if(!file)return;
   const reader=new FileReader();
-  reader.onload=e=>{
+  reader.onload=async e=>{
     try{
       const p=JSON.parse(e.target.result);
       if(!confirm('現在のデータを上書きしますか？'))return;
-      S.cards=p.cards||[];S.actions=p.actions||[];S.minutes=p.minutes||[];S.tags=p.tags||S.tags;S.settings={...S.settings,...(p.settings||{})};
-      save();renderSidebar();renderCards();renderActionList();renderMinutesList();renderDashboard();
-      showToast('データを復元しました','success');
+      S.cards=p.cards||[];S.actions=p.actions||[];S.minutes=p.minutes||[];S.tags=p.tags||S.tags;
+      // settings はクラウド同期しないので復元しない（テーマは端末ごと）
+      renderSidebar();renderCards();renderActionList();renderMinutesList();renderDashboard();
+      try{ await flushSave(); showToast('データを復元しました','success'); }
+      catch(err){ showToast('復元の保存に失敗: '+err.message,'error',8000); }
     }catch(e){showToast('復元エラー','error');}
   };
   reader.readAsText(file);
@@ -1446,9 +1520,11 @@ function importAll(input){
 function clearAll(){
   if(!confirm('全データを削除しますか？この操作は取り消せません。'))return;
   if(!confirm('本当によろしいですか？'))return;
-  S.cards=[];S.actions=[];S.minutes=[];save();
+  S.cards=[];S.actions=[];S.minutes=[];
   renderSidebar();renderCards();renderActionList();renderMinutesList();renderDashboard();
-  showToast('全データを削除しました','success');
+  flushSave()
+    .then(()=>showToast('全データを削除しました','success'))
+    .catch(err=>showToast('削除の保存失敗: '+err.message,'error',8000));
 }
 
 // ── MODALS ──
